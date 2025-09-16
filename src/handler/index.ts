@@ -7,24 +7,9 @@ import { ERLC } from '../data/models/erlc.js';
 import { PRCClient } from 'erlc.ts';
 import { getPRCClient } from '../utils/PRCClients.js';
 
-// If you have types from erlc.ts, import them here.
-// For now we'll keep them loose enough to work without the package types.
-// type PRCClient = {
-//     getServerStatus: () => Promise<any>;
-//     getCommandLogs: () => Promise<any>;
-//     getJoinLogs: () => Promise<any>;
-//     getKillLogs: () => Promise<any>;
-//     getModCalls: () => Promise<any>;
-//     getPlayers: () => Promise<any>;
-//     getQueue: () => Promise<any>;
-//     getStaff: () => Promise<any>;
-//     getVehicles: () => Promise<any>;
-//     getBans: () => Promise<any>;
-// };
-
 export interface ErlcDoc extends Document {
     guildId: string;
-    accessToken: string; // we hash this for storage auditing; not sent to the PRC client
+    accessToken: string;
 }
 
 type RouteResult = {
@@ -35,16 +20,17 @@ type RouteResult = {
 
 export interface ErlcPollerOptions {
     tickMs?: number;
+    refreshMs?: number; // how often to refetch active guilds
     globalMaxConcurrency?: number;
     perTokenMaxConcurrency?: number;
     maxRetries?: number;
     backoffBaseMs?: number;
-    // If your rest.getPRCClient signature differs, override this.
     getClient?: (guildId: string, accessToken: string) => Promise<PRCClient> | PRCClient;
 }
 
 const DEFAULTS: Required<ErlcPollerOptions> = {
     tickMs: 15_000,
+    refreshMs: 120_000, // 2 minutes
     globalMaxConcurrency: 10,
     perTokenMaxConcurrency: 3,
     maxRetries: 3,
@@ -52,8 +38,6 @@ const DEFAULTS: Required<ErlcPollerOptions> = {
     getClient: getPRCClient,
 };
 
-// ---------------------------
-// Tiny semaphore
 // ---------------------------
 class Semaphore {
     private queue: (() => void)[] = [];
@@ -81,20 +65,22 @@ class Semaphore {
 }
 
 // ---------------------------
-// Main class
-// ---------------------------
 export class ErlcPoller {
     private clickhouse: ClickHouseClient;
     private rest: RestManager;
     private ErlcModel: Model<ERLC>;
     private opts: Required<ErlcPollerOptions>;
-    private timer: NodeJS.Timeout | null = null;
+    private tickTimer: NodeJS.Timeout | null = null;
+    private refreshTimer: NodeJS.Timeout | null = null; // NEW
     private globalSem: Semaphore;
+
+    // in-memory cache of guilds to process
+    private cachedGuilds: Array<{ id: string; token: string }> = []; // NEW
 
     constructor(params: {
         clickhouseClient: ClickHouseClient;
-        discordRestManager: RestManager; // from @discordeno/rest (already created)
-        erlcModel: Model<ERLC>; // mongoose model bound to collection 'erlcs'
+        discordRestManager: RestManager;
+        erlcModel: Model<ERLC>;
         options?: ErlcPollerOptions;
     }) {
         this.clickhouse = params.clickhouseClient;
@@ -106,21 +92,49 @@ export class ErlcPoller {
 
     // Lifecycle
     async start() {
+        // initial fetch of active guilds
+        await this.refreshGuilds();
+
+        // start periodic refresh
+        this.refreshTimer = setInterval(() => {
+            this.refreshGuilds().catch((err) =>
+                console.error('[ErlcPoller] refresh error', err)
+            );
+        }, this.opts.refreshMs);
+
+        // first processing tick
         await this.tickOnce();
-        this.timer = setInterval(() => {
+
+        // periodic processing
+        this.tickTimer = setInterval(() => {
             this.tickOnce().catch((err) => console.error('[ErlcPoller] tick error', err));
         }, this.opts.tickMs);
     }
 
     async stop() {
-        if (this.timer) clearInterval(this.timer);
-        this.timer = null;
+        if (this.tickTimer) clearInterval(this.tickTimer);
+        if (this.refreshTimer) clearInterval(this.refreshTimer);
+        this.tickTimer = null;
+        this.refreshTimer = null;
     }
 
-    // One pass over all guilds
+    // refresh active guilds from DB every refreshMs
+    private async refreshGuilds() {
+        const docs = await this.ErlcModel.find({ active: true }, { _id: 1, token: 1 })
+            .lean()
+            .exec();
+        this.cachedGuilds = docs
+            .filter((d) => d._id && d.token)
+            .map((d) => ({ id: String(d._id), token: String(d.token) }));
+        console.log(`[ErlcPoller] refreshed ${this.cachedGuilds.length} active guild(s)`);
+    }
+
+    // One pass over the cached guilds
     private async tickOnce() {
-        const docs = await this.ErlcModel.find({ active: true }).lean().exec();
-        await Promise.allSettled(docs.map((d) => this.processGuild(d._id, d.token!)));
+        if (!this.cachedGuilds.length) return;
+        await Promise.allSettled(
+            this.cachedGuilds.map((g) => this.processGuild(g.id, g.token))
+        );
     }
 
     // Per-guild flow
@@ -131,16 +145,16 @@ export class ErlcPoller {
 
             // Gate
             const gateRes = await this.callWithRetry(() => client.getServerStatus());
-            const currentPlayers = Number(gateRes?.data.CurrentPlayers ?? 0);
+            const gateData = (gateRes as any)?.data ?? gateRes;
+            const currentPlayers = Number(gateData?.CurrentPlayers ?? 0);
 
             // Always store the gate result
             await this.insertSnapshots(guildId, accessToken, [
-                { route: 'getServerStatus', payload: gateRes, ok: true },
+                { route: 'getServerStatus', payload: gateData, ok: true },
             ]);
 
             if (!Number.isFinite(currentPlayers) || currentPlayers === 0) {
-                // Do not proceed to the others per your rule
-                return;
+                return; // inactive server: stop here
             }
 
             // Others (9 calls)
@@ -162,21 +176,62 @@ export class ErlcPoller {
                 if (r.status === 'fulfilled') return r.value;
                 return {
                     route: 'error',
-                    payload: String((r as PromiseRejectedResult).reason ?? 'unknown'),
+                    payload: {
+                        error: String((r as PromiseRejectedResult).reason ?? 'unknown'),
+                    },
                     ok: false,
                 };
             });
 
             await this.insertSnapshots(guildId, accessToken, rows);
-        } catch (err) {
+        } catch (err: any) {
+            // If this looks like an auth error, disable the guild and evict from cache
+            if (this.isAuthError(err)) {
+                console.error(
+                    `[ErlcPoller][${guildId}] auth error -> deactivating guild`,
+                    err?.message ?? err
+                );
+                await this.deactivateGuild(guildId).catch(() => {});
+                this.removeFromCache(guildId);
+                // Also record the error
+                await this.insertSnapshots(guildId, accessToken, [
+                    { route: 'authError', payload: { error: String(err) }, ok: false },
+                ]).catch(() => {});
+                return;
+            }
+
             console.error(`[ErlcPoller][${guildId}]`, err);
-            // write an error row to ClickHouse for visibility
             await this.insertSnapshots(guildId, accessToken, [
                 { route: 'internalError', payload: { error: String(err) }, ok: false },
             ]).catch(() => {});
         } finally {
             release();
         }
+    }
+
+    private removeFromCache(guildId: string) {
+        this.cachedGuilds = this.cachedGuilds.filter((g) => g.id !== guildId);
+    }
+
+    private async deactivateGuild(guildId: string) {
+        await this.ErlcModel.updateOne(
+            { _id: guildId },
+            { $set: { active: false } }
+        ).exec();
+    }
+
+    private isAuthError(err: any): boolean {
+        const code = err?.status ?? err?.code ?? err?.response?.status;
+        const msg = String(err?.message ?? err ?? '').toLowerCase();
+        // common signals
+        if (code === 401 || code === 403) return true;
+        if (msg.includes('unauthorized') || msg.includes('forbidden')) return true;
+        if (msg.includes('invalid token') || msg.includes('invalid authorization'))
+            return true;
+        // erlc.ts/axios-like envelopes
+        const dataCode = err?.response?.data?.code ?? err?.data?.code;
+        if (dataCode === 401 || dataCode === 403) return true;
+        return false;
     }
 
     private async getClient(guildId: string, accessToken: string): Promise<PRCClient> {
@@ -192,10 +247,11 @@ export class ErlcPoller {
     ): Promise<RouteResult> {
         const release = await sem.acquire();
         try {
-            const payload = await this.callWithRetry(fn);
-            return { route, payload, ok: true };
+            const res = await this.callWithRetry(fn);
+            const data = (res as any)?.data ?? res;
+            return { route, payload: data, ok: true };
         } catch (err) {
-            return { route, payload: String(err), ok: false };
+            return { route, payload: { error: String(err) }, ok: false };
         } finally {
             release();
         }
@@ -206,10 +262,12 @@ export class ErlcPoller {
         try {
             return await fn();
         } catch (err: any) {
+            // short-circuit: don't retry auth errors
+            if (this.isAuthError(err)) throw err;
+
             const shouldRetry = attempt < this.opts.maxRetries;
             if (!shouldRetry) throw err;
 
-            // respect Retry-After if present on known shapes
             const retryAfterMs =
                 Number(err?.retryAfter ?? err?.response?.headers?.['retry-after']) * 1000;
             const backoff = Number.isFinite(retryAfterMs)
@@ -231,12 +289,30 @@ export class ErlcPoller {
         return new Date().toISOString().slice(0, 19).replace('T', ' ');
     }
 
-    private toJsonObject(value: unknown): Record<string, unknown> {
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-            return value as Record<string, unknown>;
-        }
-        // Wrap arrays/primitives/errors so ClickHouse sees an object
-        return { value };
+    private toPlainJsonObject(value: unknown): Record<string, unknown> {
+        const seen = new WeakSet();
+        const normalize = (v: any): any => {
+            if (v === null || v === undefined) return v;
+            const t = typeof v;
+            if (t === 'bigint') return v.toString();
+            if (t === 'function' || t === 'symbol') return String(v);
+            if (t !== 'object') return v;
+            if (v instanceof Date) return v.toISOString();
+            if (Array.isArray(v)) return v.map(normalize);
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+            const out: Record<string, unknown> = {};
+            for (const [k, val] of Object.entries(v)) {
+                const nv = normalize(val);
+                if (nv !== undefined) out[k] = nv;
+            }
+            return out;
+        };
+        const obj =
+            value && typeof value === 'object' && !Array.isArray(value)
+                ? (value as Record<string, unknown>)
+                : { value };
+        return normalize(obj);
     }
 
     private async insertSnapshots(
@@ -245,24 +321,19 @@ export class ErlcPoller {
         results: RouteResult[]
     ) {
         if (!results.length) return;
-
-        // Map to ClickHouse ingest rows
         const rows = results.map((r) => ({
             event_time: this.chNow(),
             guild_id: guildId,
             token_hash: this.tokenHash(token), // store hashed only
             route: r.route,
             status: r.ok ? 200 : 500,
-            payload: this.toJsonObject(r.payload),
+            payload: this.toPlainJsonObject(r.payload),
         }));
-
         await this.clickhouse.insert({
             table: 'api_snapshots',
             values: rows,
             format: 'JSONEachRow',
         });
-        console.log(
-            `[ErlcPoller][${guildId}] Inserted ${rows.length} snapshot(s) to ${guildId}`
-        );
+        console.log(`[ErlcPoller][${guildId}] Inserted ${rows.length} snapshot(s)`);
     }
 }
