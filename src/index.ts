@@ -10,7 +10,7 @@ import Models from './data/models/index.js';
 import { Redis } from 'ioredis';
 import { connectToDatabase } from './database/mongodb.js';
 import { createClient, ClickHouseClient } from '@clickhouse/client';
-import { runHandler } from './archive/index3.js';
+// import { runHandler } from './archive/index3.js';
 import { clients, getPRCClient } from './utils/PRCClients.js';
 import { ErlcPoller } from './handler/index.js';
 import { verifyKeys } from './handler/verifyKeyScript.js';
