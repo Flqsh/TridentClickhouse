@@ -1,0 +1,7 @@
+services:
+    server:
+        build:
+            context: .
+        env_file:
+            - path: ./.env
+              required: true

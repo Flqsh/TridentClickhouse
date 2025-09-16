@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "baseUrl": ".",
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "skipDefaultLibCheck": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "incremental": true,
+        "downlevelIteration": true,
+        "noEmit": false
+    },
+    "ts-node": {
+        "esm": true
+    },
+    "exclude": ["node_modules", "archive", "./archive", "scripts"]
+}
