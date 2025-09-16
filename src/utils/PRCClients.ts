@@ -29,10 +29,10 @@ export async function getPRCClient(
             new PRCClient({
                 serverKey,
                 globalKey,
-                cache: true,
-                cacheMaxAge,
-                redisUrl: process.env.REDIS_URI,
-                redisKeyPrefix: `erlc:${guildId}`,
+                cache: false,
+                // cacheMaxAge,
+                // redisUrl: process.env.REDIS_URI,
+                // redisKeyPrefix: `erlc:${guildId}`,
             })
         );
 
