@@ -63,9 +63,9 @@ rest.snowflake = () => DiscordSnowflake.generate();
 rest.getPRCClient = getPRCClient;
 rest.redis = new Redis(process.env.REDIS_URI!);
 rest.clickhouse = createClient({
-    url: 'https://clickhouse.trident.bot/',
+    url: process.env.CLICKHOUSE_URI!,
     username: 'default',
-    password: 'aogeLPz&gg9eDEcg',
+    password: process.env.CLICKHOUSE_PASSWORD!,
 });
 await connectToDatabase();
 
@@ -78,7 +78,7 @@ rest.clickhouse
     });
 // runHandler();
 
-// verifyKeys();
+verifyKeys();
 const poller = new ErlcPoller({
     clickhouseClient: rest.clickhouse,
     discordRestManager: rest,

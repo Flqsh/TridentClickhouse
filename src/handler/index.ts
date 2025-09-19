@@ -6,6 +6,7 @@ import type { RestManager } from '@discordeno/rest';
 import { ERLC } from '../data/models/erlc.js';
 import { PRCClient } from 'erlc.ts';
 import { getPRCClient } from '../utils/PRCClients.js';
+import { timeZoneHandler } from '../functions/timezone.js';
 
 export interface ErlcDoc extends Document {
     guildId: string;
@@ -145,7 +146,7 @@ export class ErlcPoller {
 
             // Gate
             const gateRes = await this.callWithRetry(() => client.getServerStatus());
-            const gateData = (gateRes as any)?.data ?? gateRes;
+            const gateData = gateRes?.data ?? gateRes;
             const currentPlayers = Number(gateData?.CurrentPlayers ?? 0);
 
             // Always store the gate result
@@ -156,6 +157,7 @@ export class ErlcPoller {
             if (!Number.isFinite(currentPlayers) || currentPlayers === 0) {
                 return; // inactive server: stop here
             }
+            timeZoneHandler(guildId, accessToken, gateData);
 
             // Others (9 calls)
             const perTokenSem = new Semaphore(this.opts.perTokenMaxConcurrency);

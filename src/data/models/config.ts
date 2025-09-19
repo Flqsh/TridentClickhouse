@@ -129,6 +129,9 @@ const configSchema = new Schema<Config>({
         autoBanRequest: { type: Boolean, default: false },
         kickBanChannelId: { type: String, default: null },
         commandsChannelId: { type: String, default: null },
+        timeSyncTimezone: { type: String, default: null },
+        longitude: { type: Number, default: null },
+        latitude: { type: Number, default: null },
     },
     createdAt: { type: String, default: Date.now().toString() },
     lastBotRemoval: { type: String, default: null },
@@ -235,6 +238,9 @@ export interface Config extends Document {
         autoBanRequest: boolean;
         kickBanChannelId: string | null;
         commandsChannelId: string | null;
+        timeSyncTimezone: string | null;
+        longitude: number | null;
+        latitude: number | null;
     };
     createdAt: string;
     lastBotRemoval: string | null;
