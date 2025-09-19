@@ -52,6 +52,7 @@ export async function initializeTimezoneHandler() {
 }
 
 async function updateTimezoneCache() {
+    console.log('Updating timezone cache...');
     const timezones = await rest.db.config.find({
         'erlc.timeSyncTimezone': {
             $exists: true,
@@ -68,6 +69,7 @@ async function updateTimezoneCache() {
                 latitude: config.erlc.latitude || null,
             });
     });
+    console.log(`Timezone cache updated with ${timezonesCache.size} entries.`);
 }
 
 export async function timeZoneHandler(
@@ -77,6 +79,7 @@ export async function timeZoneHandler(
 ) {
     const timezone = timezonesCache.get(guildId);
     if (!timezone) return;
+    console.log(timezone);
     if (Date.now() - timezone.lastExecuted < ms('10m')) return; // only every 10 minutes
     timezone.lastExecuted = Date.now();
 

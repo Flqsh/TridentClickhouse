@@ -65,6 +65,15 @@ class Semaphore {
     }
 }
 
+let rowsInserted = 0;
+let guildsInserted = 0;
+setInterval(() => {
+    console.log('ErlcPoller rows inserted count:', rowsInserted);
+    console.log('ErlcPoller guilds inserted count:', guildsInserted);
+    rowsInserted = 0;
+    guildsInserted = 0;
+}, 30_000);
+
 // ---------------------------
 export class ErlcPoller {
     private clickhouse: ClickHouseClient;
@@ -336,6 +345,8 @@ export class ErlcPoller {
             values: rows,
             format: 'JSONEachRow',
         });
-        console.log(`[ErlcPoller][${guildId}] Inserted ${rows.length} snapshot(s)`);
+        // console.log(`[ErlcPoller][${guildId}] Inserted ${rows.length} snapshot(s)`);
+        rowsInserted += rows.length;
+        guildsInserted += 1;
     }
 }
