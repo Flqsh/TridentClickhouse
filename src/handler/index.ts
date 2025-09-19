@@ -72,7 +72,7 @@ setInterval(() => {
     console.log('ErlcPoller guilds inserted count:', guildsInserted);
     rowsInserted = 0;
     guildsInserted = 0;
-}, 30_000);
+}, 15_000);
 
 // ---------------------------
 export class ErlcPoller {
