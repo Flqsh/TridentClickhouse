@@ -14,6 +14,7 @@ import { createClient, ClickHouseClient } from '@clickhouse/client';
 import { clients, getPRCClient } from './utils/PRCClients.js';
 import { ErlcPoller } from './handler/index.js';
 import { verifyKeys } from './handler/verifyKeyScript.js';
+import { initializeTimezoneHandler } from './functions/timezone.js';
 
 dotenv.config();
 
@@ -85,7 +86,7 @@ const poller = new ErlcPoller({
     erlcModel: Models.erlc,
 });
 poller.start();
-
+initializeTimezoneHandler();
 // // By default, bot.logger will use an instance of the logger from @discordeno/bot, this logger supports depth and we need to change it, so we need to say to TS that we know what we are doing with as
 // bot.logger as typeof discordenoLogger; //.setDepth(LogDepth.Full);
 
