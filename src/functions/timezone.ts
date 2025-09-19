@@ -108,7 +108,7 @@ export async function timeZoneHandler(
             const response = await axios.get(
                 `https://api.open-meteo.com/v1/forecast?latitude=${timezone.latitude}&longitude=${timezone.longitude}&timezone=auto&current_weather=true`
             );
-            const weatherCode = response.data.current.weather_code;
+            const weatherCode = response.data.current_weather.weather_code;
             const weatherString =
                 WeatherCode[weatherCode as keyof typeof WeatherCode] || 'clear';
             await client.executeCommand(`:weather ${weatherString}`);
