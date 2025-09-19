@@ -61,12 +61,16 @@ async function updateTimezoneCache() {
     });
 
     timezones.forEach((config) => {
-        if (config.erlc?.timeSyncTimezone)
+        if (
+            config.erlc?.timeSyncTimezone ||
+            config.erlc?.longitude ||
+            config.erlc?.latitude
+        )
             timezonesCache.set(config._id, {
                 lastExecuted: 0,
-                timezone: config.erlc.timeSyncTimezone,
-                longitude: config.erlc.longitude || null,
-                latitude: config.erlc.latitude || null,
+                timezone: config.erlc?.timeSyncTimezone || null,
+                longitude: config.erlc?.longitude || null,
+                latitude: config.erlc?.latitude || null,
             });
     });
     console.log(`Timezone cache updated with ${timezonesCache.size} entries.`);
