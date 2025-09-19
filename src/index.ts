@@ -78,7 +78,7 @@ rest.clickhouse
     });
 // runHandler();
 
-verifyKeys();
+// verifyKeys();
 const poller = new ErlcPoller({
     clickhouseClient: rest.clickhouse,
     discordRestManager: rest,
