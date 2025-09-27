@@ -83,7 +83,6 @@ export async function timeZoneHandler(
 ) {
     const timezone = timezonesCache.get(guildId);
     if (!timezone) return;
-    console.log(timezone);
     if (Date.now() - timezone.lastExecuted < ms('10m')) return; // only every 10 minutes
     timezone.lastExecuted = Date.now();
 

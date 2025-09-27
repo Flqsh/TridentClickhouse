@@ -132,6 +132,12 @@ const configSchema = new Schema<Config>({
         timeSyncTimezone: { type: String, default: null },
         longitude: { type: Number, default: null },
         latitude: { type: Number, default: null },
+        welcomeMessage: { type: String, default: null },
+        disallowAllOtherUsernames: { type: Boolean, default: false },
+        playerCountStatsChannelId: { type: String, default: null },
+        playerCountFormat: { type: String, default: null },
+        queueStatsChannelId: { type: String, default: null },
+        queueFormat: { type: String, default: null },
     },
     createdAt: { type: String, default: Date.now().toString() },
     lastBotRemoval: { type: String, default: null },
@@ -241,6 +247,12 @@ export interface Config extends Document {
         timeSyncTimezone: string | null;
         longitude: number | null;
         latitude: number | null;
+        welcomeMessage: string | null;
+        disallowAllOtherUsernames: boolean;
+        playerCountStatsChannelId: string | null;
+        playerCountFormat: string | null;
+        queueStatsChannelId: string | null;
+        queueFormat: string | null;
     };
     createdAt: string;
     lastBotRemoval: string | null;
